@@ -1,20 +1,20 @@
 import os
 
 from crewai import Agent, Task, Process, Crew
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.llms import Ollama
+from langchain_anthropic import ChatAnthropic
 
-# To Load Local models through Ollama
-mistral = Ollama(model="mistral")
+def get_api_key(file_path):
+    try:
+        with open(file_path, 'r') as file:
+            return file.read().strip()  # .strip() removes any leading/trailing whitespace
+    except FileNotFoundError:
+        print("API key file not found.")
+        return None
 
-# To Load GPT-4
-api = os.environ.get("OPENAI_API_KEY")
 
-# To load gemini (this api is for free: https://makersuite.google.com/app/apikey)
-api_gemini = os.environ.get("GEMINI-API-KEY")
-llm = ChatGoogleGenerativeAI(
-    model="gemini-pro", verbose=True, temperature=0.1, google_api_key=api_gemini
-)
+api = get_api_key("api_key.gitignore")
+print(api)
+llm = ChatAnthropic(model="claude-3-haiku-20240307", anthropic_api_key=api)
 
 marketer = Agent(
     role="Market Research Analyst",
@@ -25,7 +25,7 @@ marketer = Agent(
 		""",
     verbose=True,  # enable more detailed or extensive output
     allow_delegation=True,  # enable collaboration between agent
-    #   llm=llm # to load gemini
+    llm=llm
 )
 
 technologist = Agent(
@@ -38,7 +38,7 @@ technologist = Agent(
 		operational efficiency but also provides a competitive edge in the market.""",
     verbose=True,  # enable more detailed or extensive output
     allow_delegation=True,  # enable collaboration between agent
-    #   llm=llm # to load gemini
+    llm=llm
 )
 
 business_consultant = Agent(
@@ -50,7 +50,7 @@ business_consultant = Agent(
 		about immediate gains but about building a resilient and adaptable business that can thrive in a changing market.""",
     verbose=True,  # enable more detailed or extensive output
     allow_delegation=True,  # enable collaboration between agent
-    #   llm=llm # to load gemini
+    llm=llm
 )
 
 task1 = Task(
@@ -59,6 +59,7 @@ task1 = Task(
 		be concise with at least 10 bullet points and it has to address the most important areas when it comes to marketing this type of business.
     """,
     agent=marketer,
+    expected_output="A text output in markup format",
 )
 
 task2 = Task(
@@ -67,6 +68,7 @@ task2 = Task(
 		at least 10  bullet points and it has to address the most important areas when it comes to manufacturing this type of business. 
     """,
     agent=technologist,
+    expected_output="A text output in markup format",
 )
 
 task3 = Task(
@@ -76,6 +78,7 @@ task3 = Task(
 		at least 10  bullet points, 5 goals and it has to contain a time schedule for which goal should be achieved and when.
     """,
     agent=business_consultant,
+    expected_output="A text output in markup format",
 )
 
 crew = Crew(
@@ -89,3 +92,5 @@ result = crew.kickoff()
 
 print("######################")
 print(result)
+
+
