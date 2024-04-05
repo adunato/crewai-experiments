@@ -1,5 +1,6 @@
 import os
 import streamlit as st
+import json
 
 from crewai import Agent, Task, Process, Crew
 from langchain_anthropic import ChatAnthropic
@@ -27,129 +28,162 @@ def test_llm_connection(chat):
         return False
     
 def generate_llm(api):
-    # api = get_api_key("api_key.gitignore")
     print(api)
     llm = ChatAnthropic(model="claude-3-haiku-20240307", anthropic_api_key=api)
     return llm
 
-def run_crew(llm):
+def run_crew(llm, agent_details, task_details):
+    # Create Agent objects dynamically from agent_details
+    agents = [Agent(role=agent['role'],
+                    goal=agent['goal'],
+                    backstory=agent['backstory'],
+                    verbose=True,
+                    allow_delegation=True,
+                    llm=llm) for agent in agent_details]
+    
+    # Match agents to tasks based on role
+    tasks = []
+    for task_detail in task_details:
+        # Find the agent assigned to this task
+        agent_for_task = next((agent for agent in agents if agent.role == task_detail['agent']), None)
+        if agent_for_task:
+            # Create Task object and append to tasks list
+            tasks.append(Task(description=task_detail['description'],
+                              agent=agent_for_task,
+                              expected_output=task_detail['expected_output']))
+    
+    # Run the crew with the dynamically created agents and tasks
+    crew = Crew(agents=agents, tasks=tasks, verbose=2, process=Process.sequential)
+    result = crew.kickoff()
+    
+    return result
 
-  marketer = Agent(
-      role="Market Research Analyst",
-      goal="Find out how big is the demand for my products and suggest how to reach the widest possible customer base",
-      backstory="""You are an expert at understanding the market demand, target audience, and competition. This is crucial for 
-      validating whether an idea fulfills a market need and has the potential to attract a wide audience. You are good at coming up
-      with ideas on how to appeal to widest possible audience.
-      """,
-      verbose=True,  # enable more detailed or extensive output
-      allow_delegation=True,  # enable collaboration between agent
-      llm=llm
-  )
+SESSIONS_FILE = "sessions.json"
 
-  technologist = Agent(
-      role="Technology Expert",
-      goal="Make assessment on how technologically feasable the company is and what type of technologies the company needs to adopt in order to succeed",
-      backstory="""You are a visionary in the realm of technology, with a deep understanding of both current and emerging technological trends. Your 
-      expertise lies not just in knowing the technology but in foreseeing how it can be leveraged to solve real-world problems and drive business innovation.
-      You have a knack for identifying which technological solutions best fit different business models and needs, ensuring that companies stay ahead of 
-      the curve. Your insights are crucial in aligning technology with business strategies, ensuring that the technological adoption not only enhances 
-      operational efficiency but also provides a competitive edge in the market.""",
-      verbose=True,  # enable more detailed or extensive output
-      allow_delegation=True,  # enable collaboration between agent
-      llm=llm
-  )
+def save_session(template_name, agents, tasks):
+    data = {
+        template_name: {
+            "agents": agents,
+            "tasks": tasks
+        }
+    }
+    if os.path.exists(SESSIONS_FILE):
+        with open(SESSIONS_FILE, "r+") as file:
+            existing_data = json.load(file)
+            existing_data.update(data)
+            file.seek(0)
+            json.dump(existing_data, file, indent=4)
+    else:
+        with open(SESSIONS_FILE, "w") as file:
+            json.dump(data, file, indent=4)
 
-  business_consultant = Agent(
-      role="Business Development Consultant",
-      goal="Evaluate and advise on the business model, scalability, and potential revenue streams to ensure long-term sustainability and profitability",
-      backstory="""You are a seasoned professional with expertise in shaping business strategies. Your insight is essential for turning innovative ideas 
-      into viable business models. You have a keen understanding of various industries and are adept at identifying and developing potential revenue streams. 
-      Your experience in scalability ensures that a business can grow without compromising its values or operational efficiency. Your advice is not just
-      about immediate gains but about building a resilient and adaptable business that can thrive in a changing market.""",
-      verbose=True,  # enable more detailed or extensive output
-      allow_delegation=True,  # enable collaboration between agent
-      llm=llm
-  )
+def load_session(template_name):
+    if os.path.exists(SESSIONS_FILE):
+        with open(SESSIONS_FILE, "r") as file:
+            data = json.load(file)
+            return data.get(template_name, {"agents": [], "tasks": []})
+    return {"agents": [], "tasks": []}
 
-  task1 = Task(
-      description="""Analyze what the market demand for plugs for holes in crocs (shoes) so that this iconic footware looks less like swiss cheese. 
-      Write a detailed report with description of what the ideal customer might look like, and how to reach the widest possible audience. The report has to 
-      be concise with at least 10 bullet points and it has to address the most important areas when it comes to marketing this type of business.
-      """,
-      agent=marketer,
-      expected_output="A text output in markup format",
-  )
-
-  task2 = Task(
-      description="""Analyze how to produce plugs for crocs (shoes) so that this iconic footware looks less like swiss cheese.. Write a detailed report 
-      with description of which technologies the business needs to use in order to make High Quality T shirts. The report has to be concise with 
-      at least 10  bullet points and it has to address the most important areas when it comes to manufacturing this type of business. 
-      """,
-      agent=technologist,
-      expected_output="A text output in markup format",
-  )
-
-  task3 = Task(
-      description="""Analyze and summarize marketing and technological report and write a detailed business plan with 
-      description of how to make a sustainable and profitable "plugs for crocs (shoes) so that this iconic footware looks less like swiss cheese" business. 
-      The business plan has to be concise with 
-      at least 10  bullet points, 5 goals and it has to contain a time schedule for which goal should be achieved and when.
-      """,
-      agent=business_consultant,
-      expected_output="A text output in markup format",
-  )
-
-  crew = Crew(
-      agents=[marketer, technologist, business_consultant],
-      tasks=[task1, task2, task3],
-      verbose=2,
-      process=Process.sequential,  # Sequential process will have tasks executed one after the other and the outcome of the previous one is passed as extra content into this next.
-  )
-
-  result = crew.kickoff()
-
-  print("######################")
-  print(result)
-  return result
+def list_templates():
+    if os.path.exists(SESSIONS_FILE):
+        with open(SESSIONS_FILE, "r") as file:
+            data = json.load(file)
+            return list(data.keys())
+    return []
 
 # Assuming the rest of the provided code is available and functions are defined as before
 
-# Streamlit app definition
-def streamlit_app():
-    st.title("LLM Crew App")
-    
-    # File uploader for API key
-    api_key_file = st.file_uploader("Upload API key file", type=['gitignore'])
-    
-    if api_key_file is not None:
-        api_key_content = api_key_file.getvalue().decode("utf-8").strip()
-        st.success("API Key Uploaded Successfully!")
+def streamlit_app(llm):
 
-        # Generate LLM instance with the provided API key
-        llm = generate_llm(api_key_content)  # Adjusting the generate_llm function to accept API key as argument
+    template_name = st.text_input("Template Name")
+    if st.button("Save Current Session"):
+        save_session(template_name, st.session_state.agents, st.session_state.tasks)
+        st.success(f"Session '{template_name}' saved.")
 
-        # Button to test LLM connection
-        if st.button("Test LLM Connection"):
-            if test_llm_connection(llm):
-                st.success("LLM Connection Successful!")
-            else:
-                st.error("LLM Connection Failed.")
-
-        # Button to run Crew with LLM
-        if st.button("Run Crew"):
-            result = run_crew(llm)  # Adjust run_crew to return the result for display
-            st.markdown(result)
-
-streamlit_app()
-
-# Note: The provided script needs adjustments to work with the above Streamlit integration.
-# - `generate_llm` function should be modified to accept the API key content directly as an argument.
-# - `run_crew` function should return the result instead of printing it, to allow displaying it in the Streamlit app.
-# - Make sure all other functions and logic are adapted for integration with Streamlit where necessary.
+    template_to_load = st.selectbox("Load Template", options=list_templates())
+    if st.button("Load Selected Template"):
+        session_data = load_session(template_to_load)
+        st.session_state.agents = session_data["agents"]
+        st.session_state.tasks = session_data["tasks"]
+        st.success(f"Loaded template: {template_to_load}")
 
 
-# llm = generate_llm()
-# # test_llm_connection(llm)
-# run_crew(llm)
+    # Initialize session state for agents and tasks
+    if 'agents' not in st.session_state:
+        st.session_state.agents = []
+    if 'tasks' not in st.session_state:
+        st.session_state.tasks = []
 
+    def add_agent():
+        st.session_state.agents.append({'role': '', 'goal': '', 'backstory': ''})
 
+    def add_task():
+        st.session_state.tasks.append({'description': '', 'expected_output': ''})
+
+    st.title("Dynamic LLM Crew App")
+
+    # Buttons to add agents and tasks
+    st.button("Add Agent", on_click=add_agent)
+    st.button("Add Task", on_click=add_task)
+
+    # Dynamically create input fields for each agent
+    for i, _ in enumerate(st.session_state.agents):
+        with st.container():
+            st.write(f"Agent {i+1}")
+            st.session_state.agents[i]['role'] = st.text_input(
+                f"Role {i+1}", 
+                value=st.session_state.agents[i].get('role', ''), 
+                key=f"role_{i}"
+            )
+            st.session_state.agents[i]['goal'] = st.text_input(
+                f"Goal {i+1}", 
+                value=st.session_state.agents[i].get('goal', ''), 
+                key=f"goal_{i}"
+            )
+            st.session_state.agents[i]['backstory'] = st.text_area(
+                f"Backstory {i+1}", 
+                value=st.session_state.agents[i].get('backstory', ''), 
+                key=f"backstory_{i}"
+            )
+
+    # Dynamically create input fields for tasks, including an agent dropdown
+    for i, task in enumerate(st.session_state.tasks):
+        with st.container():
+            st.write(f"Task {i+1}")
+            
+            # Create a list of agent roles for the dropdown and find the index of the current task's agent
+            agent_options = [agent['role'] for agent in st.session_state.agents]
+            current_agent_index = agent_options.index(task['agent']) if task['agent'] in agent_options else 0
+            
+            # Dropdown for selecting an agent for the task
+            selected_agent = st.selectbox(
+                f"Select Agent for Task {i+1}", 
+                agent_options, 
+                index=current_agent_index, 
+                key=f"agent_select_{i}"
+            )
+            
+            # Set the selected agent and update task details with the current values or empty strings if not present
+            task['agent'] = selected_agent
+            task['description'] = st.text_input(
+                f"Description {i+1}", 
+                value=task.get('description', ''), 
+                key=f"description_{i}"
+            )
+            task['expected_output'] = st.text_input(
+                f"Expected Output {i+1}", 
+                value=task.get('expected_output', ''), 
+                key=f"expected_output_{i}"
+            )
+    # Submit button to process the inputs
+    if st.button('Run Crew'):
+        st.write("Running Crew with provided details...")
+        # Assuming run_crew returns a markdown string as a result
+        result = run_crew(llm, st.session_state.agents, st.session_state.tasks)
+        st.markdown(result, unsafe_allow_html=True)
+        # If you want to let the user copy the result, you could use a text_area like this:
+        st.text_area("Result", result, height=300)
+
+api = get_api_key("api_key.gitignore")
+llm = generate_llm(api)
+streamlit_app(llm)
